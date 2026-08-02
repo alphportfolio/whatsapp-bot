@@ -1,19 +1,15 @@
 require("dotenv").config();
 const express = require("express");
-const axios = require("axios");
+const { handleIncoming, askWelcome } = require("./src/engine");
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
-const GRAPH_API_VERSION = "v21.0";
 
 // -----------------------------
 // 1. Webhook verification (GET)
-// Meta calls this once when you save the webhook config in the dashboard.
 // -----------------------------
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -31,10 +27,9 @@ app.get("/webhook", (req, res) => {
 
 // -----------------------------
 // 2. Incoming messages (POST)
-// Meta calls this every time a user sends your number a message.
 // -----------------------------
 app.post("/webhook", async (req, res) => {
-  // Always respond 200 fast so Meta doesn't retry/flag your webhook.
+  // Respond fast so Meta doesn't retry/flag the webhook.
   res.sendStatus(200);
 
   try {
@@ -43,44 +38,36 @@ app.post("/webhook", async (req, res) => {
     const value = change?.value;
     const message = value?.messages?.[0];
 
-    if (!message) return; // could be a status update (delivered/read), ignore
+    if (!message) return; // status update (delivered/read), not a real message
 
-    const from = message.from; // sender's phone number
-    const text = message.text?.body;
+    const from = message.from;
+    const displayName = value?.contacts?.[0]?.profile?.name;
 
-    console.log(`Message from ${from}: ${text}`);
+    console.log(`Incoming from ${from}:`, JSON.stringify(message.text || message.interactive || message.type));
 
-    // Simple echo bot logic — replace this with your own logic later
-    await sendMessage(from, `You said: ${text}`);
+    // Any free-text greeting with no active flow should also trigger the welcome menu,
+    // not just the very first message ever — handled inside handleIncoming already,
+    // but as a safety net for "hi"/"hello" style messages before any flow exists:
+    if (message.type === "text" && /^(hi|hello|hey|start)$/i.test(message.text.body.trim())) {
+      const { supabase } = require("./src/supabaseClient");
+      const { data } = await supabase
+        .from("conversation_state")
+        .select("current_flow")
+        .eq("whatsapp_number", from)
+        .maybeSingle();
+
+      if (!data || !data.current_flow) {
+        await askWelcome(from);
+        return;
+      }
+    }
+
+    await handleIncoming(from, message, displayName);
   } catch (err) {
-    console.error("Error handling webhook event:", err.response?.data || err.message);
+    console.error("Error handling webhook event:", err.response?.data || err.message || err);
   }
 });
 
-// -----------------------------
-// Helper: send a message via the Graph API
-// -----------------------------
-async function sendMessage(to, body) {
-  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${PHONE_NUMBER_ID}/messages`;
-
-  await axios.post(
-    url,
-    {
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body },
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-}
-
-// Health check route — useful to confirm the app is alive
 app.get("/", (req, res) => {
   res.send("WhatsApp bot is running.");
 });
