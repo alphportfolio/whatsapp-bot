@@ -62,7 +62,10 @@ async function sendList(to, bodyText, buttonLabel, rows) {
 
 // Sends a WhatsApp Flow message — used for real multi-select checkboxes,
 // which plain button/list messages can't do.
-async function sendFlow(to, { flowId, screenId, bodyText, ctaLabel }) {
+// mode: "draft" lets you test an unpublished flow against your own verified
+// numbers without needing business verification. Switch to "published" once
+// the flow is actually published and going to real users.
+async function sendFlow(to, { flowId, screenId, bodyText, ctaLabel, mode = "draft" }) {
   return client().post("/messages", {
     messaging_product: "whatsapp",
     to,
@@ -77,6 +80,7 @@ async function sendFlow(to, { flowId, screenId, bodyText, ctaLabel }) {
           flow_id: flowId,
           flow_cta: ctaLabel,
           flow_action: "navigate",
+          mode, // "draft" or "published"
           flow_action_payload: { screen: screenId, data: {} },
         },
       },
