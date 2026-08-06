@@ -66,6 +66,10 @@ async function sendList(to, bodyText, buttonLabel, rows) {
 // numbers without needing business verification. Switch to "published" once
 // the flow is actually published and going to real users.
 async function sendFlow(to, { flowId, screenId, bodyText, ctaLabel, mode = "draft" }) {
+  const flow_action_payload = { screen: screenId };
+  // WhatsApp rejects an empty `data` object — only include it if there's
+  // actually something to pre-fill on the first screen.
+
   return client().post("/messages", {
     messaging_product: "whatsapp",
     to,
@@ -81,7 +85,7 @@ async function sendFlow(to, { flowId, screenId, bodyText, ctaLabel, mode = "draf
           flow_cta: ctaLabel,
           flow_action: "navigate",
           mode, // "draft" or "published"
-          flow_action_payload: { screen: screenId, data: {} },
+          flow_action_payload,
         },
       },
     },
