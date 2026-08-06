@@ -1,11 +1,29 @@
-const { sendText, sendButtons, sendList } = require("../whatsapp");
+const { sendText, sendButtons, sendList, sendFlow } = require("../whatsapp");
 const { supabase } = require("../supabaseClient");
 
+// Must stay in sync with whatsapp-flow-configs/amenities-flow.json's data-source.
+// id = value submitted by the Flow, title = human-readable label stored on the listing.
 const AMENITIES = [
-  "Parking", "Lift", "Power Backup", "Wi-Fi", "Balcony",
-  "Air Conditioner", "Geyser", "Modular Kitchen", "Security",
-  "CCTV", "Gym", "Swimming Pool",
+  { id: "parking", title: "Parking" },
+  { id: "lift", title: "Lift" },
+  { id: "power_backup", title: "Power Backup" },
+  { id: "wifi", title: "Wi-Fi" },
+  { id: "security", title: "Security" },
+  { id: "cctv", title: "CCTV" },
+  { id: "modular_kitchen", title: "Modular Kitchen" },
+  { id: "geyser", title: "Geyser" },
+  { id: "air_conditioner", title: "Air Conditioner" },
+  { id: "balcony", title: "Balcony" },
+  { id: "gym", title: "Gym" },
+  { id: "swimming_pool", title: "Swimming Pool" },
+  { id: "clubhouse", title: "Clubhouse" },
+  { id: "kids_play_area", title: "Kids Play Area" },
+  { id: "intercom", title: "Intercom" },
+  { id: "servant_room", title: "Servant Room" },
+  { id: "garden", title: "Garden" },
+  { id: "piped_gas", title: "Piped Gas" },
 ];
+const AMENITIES_BY_ID = Object.fromEntries(AMENITIES.map((a) => [a.id, a.title]));
 
 const PROPERTY_TYPES = [
   { id: "1RK", title: "1 RK" },
@@ -188,26 +206,23 @@ const ownerSteps = {
     next: () => "amenities",
   }),
 
-  // ---- Step 8: Amenities (multi-select via numbered reply) ----
+  // ---- Step 8: Amenities (real multi-select checkboxes via WhatsApp Flow) ----
   amenities: {
     id: "amenities",
-    ask: async (to) => {
-      const list = AMENITIES.map((a, i) => `${i + 1}. ${a}`).join("\n");
-      await sendText(
-        to,
-        `Select all amenities that apply. Reply with the numbers, separated by commas.\n\n${list}\n\nExample: 1,4,9`
-      );
-    },
+    ask: async (to) =>
+      sendFlow(to, {
+        flowId: process.env.AMENITIES_FLOW_ID,
+        screenId: "AMENITIES",
+        bodyText: "Select all amenities that apply to your property.",
+        ctaLabel: "Select Amenities",
+      }),
     parse: (incoming) => {
-      if (incoming.type !== "text") return { ok: false, error: "Please reply with numbers, e.g. 1,4,9." };
-      const nums = incoming.value
-        .split(",")
-        .map((s) => parseInt(s.trim(), 10))
-        .filter((n) => !isNaN(n) && n >= 1 && n <= AMENITIES.length);
-      if (nums.length === 0) {
-        return { ok: false, error: `Please reply with valid numbers between 1 and ${AMENITIES.length}, e.g. 1,4,9.` };
+      if (incoming.type !== "flow" || !incoming.value || !Array.isArray(incoming.value.amenities)) {
+        return { ok: false, error: "Please use the button below to select your amenities." };
       }
-      return { ok: true, value: [...new Set(nums)].map((n) => AMENITIES[n - 1]) };
+      // Empty selection is valid — "no amenities" is a real answer, not an error.
+      const titles = incoming.value.amenities.map((id) => AMENITIES_BY_ID[id]).filter(Boolean);
+      return { ok: true, value: titles };
     },
     save: (value, flowData) => {
       flowData.amenities = value;
@@ -293,7 +308,7 @@ const ownerSteps = {
     ask: async (to) =>
       sendButtons(to, "Is this property currently available for rent?", [
         { id: "available_now", title: "✅ Available Now" },
-        { id: "available_from", title: "📅 Available From (Date)" },
+        { id: "available_from", title: "📅 Available From" },
       ]),
     parse: (incoming) => {
       if (incoming.type !== "button" || !["available_now", "available_from"].includes(incoming.value)) {
