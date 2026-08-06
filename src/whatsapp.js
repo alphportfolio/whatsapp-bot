@@ -60,7 +60,31 @@ async function sendList(to, bodyText, buttonLabel, rows) {
   });
 }
 
-// Extracts a normalized { type: 'text' | 'button' | 'list', value } from an incoming message
+// Sends a WhatsApp Flow message — used for real multi-select checkboxes,
+// which plain button/list messages can't do.
+async function sendFlow(to, { flowId, screenId, bodyText, ctaLabel }) {
+  return client().post("/messages", {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "flow",
+      body: { text: bodyText },
+      action: {
+        name: "flow",
+        parameters: {
+          flow_message_version: "3",
+          flow_id: flowId,
+          flow_cta: ctaLabel,
+          flow_action: "navigate",
+          flow_action_payload: { screen: screenId, data: {} },
+        },
+      },
+    },
+  });
+}
+
+// Extracts a normalized { type: 'text' | 'button' | 'list' | 'flow', value } from an incoming message
 function parseIncoming(message) {
   if (message.type === "text") {
     return { type: "text", value: message.text.body.trim() };
@@ -73,8 +97,17 @@ function parseIncoming(message) {
     if (interactive.type === "list_reply") {
       return { type: "list", value: interactive.list_reply.id };
     }
+    if (interactive.type === "nfm_reply") {
+      // Flow submissions arrive as a JSON string in response_json
+      try {
+        const parsed = JSON.parse(interactive.nfm_reply.response_json);
+        return { type: "flow", value: parsed };
+      } catch (e) {
+        return { type: "unsupported", value: null };
+      }
+    }
   }
   return { type: "unsupported", value: null };
 }
 
-module.exports = { sendText, sendButtons, sendList, parseIncoming };
+module.exports = { sendText, sendButtons, sendList, sendFlow, parseIncoming };
